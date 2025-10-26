@@ -1,5 +1,10 @@
 #include "s3.h"
 
+//This is the main function that runs the shell.
+//It reads the command line input, parses the command, and launches the program. 
+//It also reaps the child process.
+//It's in an infinite loop so it can keep reading and launching programs.
+
 int main(int argc, char *argv[]){
 
     ///Stores the command line input

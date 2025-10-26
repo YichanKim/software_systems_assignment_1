@@ -1,5 +1,7 @@
 #include "s3.h"
 
+//This file contains the functions that are used in the shell. 
+
 ///Simple for now, but will be expanded in a following section
 void construct_shell_prompt(char shell_prompt[])
 {
@@ -57,7 +59,7 @@ void parse_command(char line[], char *args[], int *argsc)
 void child(char *args[], int argsc)
 {
     //transforms the current process into a new program
-    execvp(args[0], args);
+    execvp(args[ARG_PROGNAME], args);
 
     //if execvp is successful, we will not get here so we can do error handling here
     fprintf(stderr, "Incorrect args\n");
@@ -86,19 +88,16 @@ void child(char *args[], int argsc)
 void launch_program(char *args[], int argsc)
 {
 
-    if (strcmp(args[0], "exit")==0){
+    if (args[0] != NULL && strcmp(args[0], "exit") == 0){
         exit(0); //success status code
     }
-    int rc = fork();
-    if (rc < 0) { //fork failed, exit
+    int pid = fork();
+    if (pid < 0) { //fork failed, exit
         fprintf(stderr, "fork failed\n");
         exit(1); // error status code
-    } else if (rc==0) { //child process, run child
+    } else if (pid==0) { //child process, run child
         child(args, argsc);
     } else { //parent node
-        int wc = wait(NULL); //wait for child process to finish    
+        //Do nothing, wait for reap() to handle the waiting   
     }
-    return;
-
-
 }
