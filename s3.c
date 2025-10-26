@@ -1,5 +1,7 @@
 #include "s3.h"
 
+//This file contains the functions that are used in the shell. 
+
 ///Simple for now, but will be expanded in a following section
 void construct_shell_prompt(char shell_prompt[])
 {
@@ -45,23 +47,36 @@ void parse_command(char line[], char *args[], int *argsc)
 ///Launch related functions
 void child(char *args[], int argsc)
 {
-    ///Implement this function:
-
     ///Use execvp to load the binary 
     ///of the command specified in args[ARG_PROGNAME].
-    ///For reference, see the code in lecture 3.
+    if (execvp(args[ARG_PROGNAME], args) == -1) { //execvp() finds and runs the program, returns -1 if it fails
+        perror("execvp failed");
+        exit(1);
+    }
 }
 
+//Main shell calls the launch program
+//Checks for exit, else continues
+//Forks child process, get's execvp to run the command
+//Reaps the child process
 void launch_program(char *args[], int argsc)
 {
-    ///Implement this function:
+    //Handle the special "exit" command - shell should exit, not the child
+    if (args[0] != NULL && strcmp(args[0], "exit") == 0) {
+        exit(0);
+    }
 
-    ///fork() a child process.
-    ///In the child part of the code,
-    ///call child(args, argv)
-    ///For reference, see the code in lecture 2.
+    //Create a child process
+    pid_t pid = fork();
 
-    ///Handle the 'exit' command;
-    ///so that the shell, not the child process,
-    ///exits.
+    if (pid == 0) { 
+        //This code runs the CHILD process
+        child(args, argsc);
+    } else if(pid > 0) {
+        //This code runs the PARENT process
+        //Do nothing - let reap() handle the waiting
+    } else {
+        //fork() failed
+        perror("fork failed");
+    }
 }

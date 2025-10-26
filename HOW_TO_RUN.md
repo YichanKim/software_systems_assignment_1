@@ -2,6 +2,9 @@
 ## How to Run and Test
 
 ### Compilation
+
+Make sure that you are using Ubuntu
+
 ```bash
 # Navigate to project directory
 cd /path/to/your/project
