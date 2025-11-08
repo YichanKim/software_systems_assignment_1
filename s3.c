@@ -105,7 +105,17 @@ void launch_program(char *args[], int argsc)
 int command_with_redirection(char line[])
 {
     for (size_t i = 0; line[i] != '\0'; i++) {
-        if (line[i] == '>' ||  line[i] == '<')  //We only want to parse the detailed redirection info when the operators appear
+        if (line[i] == '>' ||  line[i] == '<')  //We only want to parse the detailed redirection info when the operators appear, we return 1 for the main loop if we find redirection
+            return 1;
+    }
+    return 0;
+}
+
+//Use this helper function to check if the command contains a pipe (used in the main loop)
+int command_with_pipes(char line[])
+{
+    for (size_t i = 0; line[i] != '\0'; i++) {
+        if (line[i] == '|')
             return 1;
     }
     return 0;
@@ -135,6 +145,32 @@ int find_redirection(char *tokens[], int count, char **file, int *append, int *i
         }
     }
     return -1;
+}
+
+//Splits the raw line into 2 individual commands
+//Returns 1 if successful, and 0 if we have a parse failure
+//We rely on strtok_r (thread-safe version of strtok) to avoid race conditions when using strtok in a multi-threaded environment
+int tokenize_pipeline(char line[], char *commands[], int *command_count) 
+{
+    char *saveptr = NULL;
+    char *token = strtok_r(line, "|", &saveptr);
+    *command_count = 0;
+
+    while (token != NULL && *command_count < MAX_ARGS - 1) {
+        //Trim the leading spaces
+        while (*token == ' ') 
+            ++token;
+
+        if (*token == '\0') {
+            return 0; //Empty command between pipes = error
+        }
+
+        commands[(*command_count)++] = token;
+        token = strtok_r(NULL, "|", &saveptr);
+    }
+
+    commands[*command_count] = NULL;
+    return *command_count > 0;
 }
 
 //Child helper function for redirection - The child process needs to rewire its stdin/stdout before calling execvp.
@@ -174,6 +210,32 @@ static void child_with_redirection(char *args[], int argsc, char *filename, int 
     }
 }
 
+//Launches a child command within a pipe.
+//read_fd: fd to be duped onto stdin (or -1 if no pipe input)
+//write_fd: fd to be duped onto stdout (or -1 if no pipe output)
+static void child_with_pipes(char *args[], int argsc, int read_fd, int write_fd)
+{
+    if (read_fd != - 1) {
+        if (dup2(read_fd, STDIN_FILENO) == -1) {
+            perror("dup2 failed");
+            exit(1);
+        }
+        close(read_fd);
+    }
+
+    if (write_fd != -1) {
+        if (dup2(write_fd, STDOUT_FILENO) == -1) {
+            perror("dup2 failed");
+            exit(1);
+        }
+        close(write_fd);
+    }
+
+    execvp(args[ARG_PROGNAME], args);
+    perror("execvp failed");
+    exit(1);
+}
+
 //This is the launch program function with redirection support.
 //We NUL-out the redirection tokens so that execvp sees only the real command arguments.
 //The child uses the helper function above to perform the actual redirection (child_with_redirection).
@@ -203,4 +265,63 @@ void launch_program_with_redirection(char *args[], int argsc)
     } else {
         perror("fork failed");
     }
+}
+
+//Launches a pipeline of commands
+void launch_pipeline(char *commands[], int command_count)
+{
+    int prev_read_fd = -1;
+
+    for (int i = 0; i < command_count; i++) {
+        char *args[MAX_ARGS];
+        int argsc = 0;
+
+        parse_command(commands[i], args, &argsc);
+
+        if (argsc == 0) {
+            fprintf(stderr, "Empty command in pipeline\n");
+            if (prev_read_fd != -1) close(prev_read_fd);
+            return;
+        }
+
+        int pipe_fds[2] = {-1, -1};
+        if (i < command_count - 1) {
+            if (pipe(pipe_fds) == -1) {
+                perror("pipe failed");
+                if(prev_read_fd != -1) close(prev_read_fd);
+                return;
+            }
+        }
+
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork failed");
+            if (prev_read_fd != -1) close(prev_read_fd);
+            if (pipe_fds[0] != -1) close(pipe_fds[0]);
+            if (pipe_fds[1] != -1) close(pipe_fds[1]);
+            return;
+        }
+
+        if (pid == 0) {
+            int read_fd = prev_read_fd;
+            int write_fd = (i < command_count - 1) ? pipe_fds[1] : -1;
+
+            if (pipe_fds[0] != -1) 
+            close(pipe_fds[0]); //Child doesn't need read end yet
+            child_with_pipes(args, argsc, read_fd, write_fd);
+        } else {
+            if (prev_read_fd != -1)
+                close(prev_read_fd);
+
+            if (pipe_fds[1] != -1)
+                close(pipe_fds[1]);
+
+            prev_read_fd = pipe_fds[0];
+        }
+    }
+
+    if (prev_read_fd != -1)
+        close(prev_read_fd);
+
+    //Parent returns; reap() in main waits for all children
 }

@@ -81,6 +81,33 @@ All redirection test commands from the roadmap executed successfully (e.g., `ls 
 
 ---
 
+## Section 3: Support for `cd` Command - TBD
+
+
+---
+
+## Section 4: Commands with Pipes - COMPLETED
+
+### What I Accomplished
+Implemented pipeline execution so multiple commands can be chained with `|`, letting the stdout of one command flow into the stdin of the next.
+
+### Implementation
+- **`command_with_pipes()`**: Detects pipe symbols before any parsing work is done.
+- **`tokenize_pipeline()`**: Splits the raw line into per-command segments, trimming whitespace and rejecting empty stages.
+- **`child_with_pipes()`**: Duplicates designated pipe ends onto `stdin` and/or `stdout` before calling `execvp()`.
+- **`launch_pipeline()`**: Iterates through the pipeline, wiring pipes between adjacent stages, forking children, and closing unused descriptors in parent and child.
+
+### Key Insights I Learned
+- By reusing `parse_command()` on each pipeline segment, the existing argument parsing logic stays consistent.
+- The parent must close each write end immediately and carry only the read end forward; otherwise, downstream processes never see EOF.
+- Passing `-1` for unused read/write descriptors keeps the helper generic and avoids accidentally duping invalid fds.
+- Letting the main loop call `reap()` afterward keeps process cleanup centralized, even for multi-stage pipelines.
+
+### Testing Results
+All pipeline test commands from the roadmap ran successfully (e.g., `cat | sort | uniq`, multi-stage pipes with redirection). Outputs matched the expected data, showing that inter-process plumbing works end-to-end.
+
+---
+
 ### Environment
 - **Platform**: Ubuntu/WSL 
 - **Compilation**: `gcc *.c -o s3`
@@ -90,5 +117,4 @@ All redirection test commands from the roadmap executed successfully (e.g., `ls 
 ## Next Steps
 
 - **Section 3**: Support for `cd` command  
-- **Section 4**: Commands with Pipes
 - **Section 5**: Batched Commands

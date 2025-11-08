@@ -53,5 +53,10 @@ void launch_program_with_redirection(char *args[], int argsc);
 //Extra helper function
 int find_redirection(char *tokens[], int count, char **file, int *append, int *input);
 
+//Pipe helpers - The three functions below are to implement the pipe functionality.
+int command_with_pipes(char line[]);
+int tokenize_pipeline(char line[], char *commands[], int *command_count);
+void launch_pipeline(char *commands[], int command_count);
+//I'm writing general-purpose helpers so that the main loop stays readable. 
 
 #endif

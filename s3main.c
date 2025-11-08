@@ -17,14 +17,26 @@ int main(int argc, char *argv[]){
     ///Stores the number of arguments
     int argsc;
 
-    while (1) { //Edit the main loop to handle redirection
+    while (1) { //Edit the main loop to handle redirection and pipes
         read_command_line(line);
 
-        if (command_with_redirection(line)) { //Inspect the raw line for '>', '>>' or '<', handle it with separate functions
+        if (command_with_pipes(line)) {
+            char *pipeline_cmds[MAX_ARGS];
+            int pipeline_count = 0;
+
+            if (tokenize_pipeline(line, pipeline_cmds, &pipeline_count)) { //Split the line into separate command strings so that each command is parsed
+                launch_pipeline(pipeline_cmds, pipeline_count); //Handles launching each command
+            } else {
+                fprintf(stderr, "Pipeline parse error\n"); //Error handling
+            }
+
+            reap();
+
+        } else if (command_with_redirection(line)) { //Inspect the raw line for '>', '>>' or '<', handle it with separate functions
             parse_command(line, args, &argsc);
             launch_program_with_redirection(args, argsc);
             reap();
-        } else{ //Else, just launch as normal
+        } else { //Else, just launch as normal
             parse_command(line, args, &argsc);
             launch_program(args, argsc);
             reap();
