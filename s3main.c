@@ -17,14 +17,18 @@ int main(int argc, char *argv[]){
     ///Stores the number of arguments
     int argsc;
 
-    while (1) {
+    while (1) { //Edit the main loop to handle redirection
         read_command_line(line);
 
-        parse_command(line, args, &argsc);
-
-        launch_program(args, argsc); 
-
-        reap();
+        if (command_with_redirection(line)) { //Inspect the raw line for '>', '>>' or '<', handle it with separate functions
+            parse_command(line, args, &argsc);
+            launch_program_with_redirection(args, argsc);
+            reap();
+        } else{ //Else, just launch as normal
+            parse_command(line, args, &argsc);
+            launch_program(args, argsc);
+            reap();
+        }
     }
 
     return 0;

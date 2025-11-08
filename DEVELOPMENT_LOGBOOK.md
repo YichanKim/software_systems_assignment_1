@@ -57,6 +57,30 @@ Comprehensive testing of basic commands:
 
 All tests passed. The shell successfully executes standard Unix commands by finding them in the system PATH.
 
+---
+
+## Section 2: Commands with Redirection - COMPLETED
+
+### What I Accomplished
+Added support for single-operator input and output redirection so commands can read from or write to files using `<`, `>`, or `>>`.
+
+### Implementation
+- **`command_with_redirection()`**: Scans the raw command line for redirection symbols before parsing.
+- **`find_redirection()`**: Identifies the operator/filename pair in the tokenized argument list and captures mode (input vs append vs truncate).
+- **`child_with_redirection()`**: Uses `open()` and `dup2()` to rewrite `stdin` or `stdout`, then executes the command with `execvp()`.
+- **`launch_program_with_redirection()`**: Strips the operator and filename from the argument list, forks, and delegates to the redirection-aware child helper.
+
+### Key Insights I Learned
+- Removing the operator and filename (by setting their slots to `NULL`) ensures `execvp()` only sees real arguments.
+- `dup2()` must be called in the child after `fork()`; doing so in the parent would redirect the shell itself.
+- Using `O_WRONLY | O_CREAT` plus either `O_TRUNC` or `O_APPEND` matches the behavior of `>` vs `>>` in standard shells.
+- Limiting support to a single redirection operator keeps parsing straightforward and matches the section requirements.
+
+### Testing Results
+All redirection test commands from the roadmap executed successfully (e.g., `ls > ...`, `sort > ...`, `grep < ...`, `tr < ...`). Files were created/updated with the expected contents, confirming the feature works as intended.
+
+---
+
 ### Environment
 - **Platform**: Ubuntu/WSL 
 - **Compilation**: `gcc *.c -o s3`
@@ -65,7 +89,6 @@ All tests passed. The shell successfully executes standard Unix commands by find
 
 ## Next Steps
 
-- **Section 2**: Commands with Redirection
 - **Section 3**: Support for `cd` command  
 - **Section 4**: Commands with Pipes
 - **Section 5**: Batched Commands

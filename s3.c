@@ -101,3 +101,106 @@ void launch_program(char *args[], int argsc)
         //Do nothing, wait for reap() to handle the waiting   
     }
 }
+
+int command_with_redirection(char line[])
+{
+    for (size_t i = 0; line[i] != '\0'; i++) {
+        if (line[i] == '>' ||  line[i] == '<')  //We only want to parse the detailed redirection info when the operators appear
+            return 1;
+    }
+    return 0;
+}
+
+//This returns the index of the operator if found, -1 otherwise.
+//It sets the file, appends, input depends on the operator type.
+//The key idea of this function is to record the file to use, whether it's append mode, and whether it's input redirection.
+int find_redirection(char *tokens[], int count, char **file, int *append, int *input)
+{
+    for (int i = 0; i < count; i++) {
+        if (strcmp(tokens[i], ">") == 0) { //String compare
+            *file = tokens[i + 1];
+            *append = 0;
+            *input = 0;
+            return i;
+        } else if (strcmp(tokens[i], ">>") == 0) {
+            *file = tokens[i + 1];
+            *append = 1;
+            *input = 0;
+            return i;
+        } else if (strcmp(tokens[i], "<") == 0) {
+            *file = tokens[i + 1];
+            *append = 0;
+            *input = 1;
+            return i;
+        }
+    }
+    return -1;
+}
+
+//Child helper function for redirection - The child process needs to rewire its stdin/stdout before calling execvp.
+static void child_with_redirection(char *args[], int argsc, char *filename, int append, int input)
+{
+    int fd; //file descriptor
+    if (input) {
+        fd = open(filename, O_RDONLY);
+        if (fd == -1) {
+            perror("open failed");
+            exit(1);
+        }
+        if (dup2(fd, STDIN_FILENO) == -1) {
+            perror("dup2 failed");
+            close(fd);
+            exit(1);
+        }
+    } else {
+        int flags = O_WRONLY | O_CREAT;
+        flags |= append ? O_APPEND : O_TRUNC;
+        fd = open(filename, flags, 0644);
+        if (fd == -1) {
+            perror("open failed");
+            exit(1);
+        }
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+            perror("dup2 failed");
+            close(fd);
+            exit(1);
+        }
+    }
+    close(fd);
+
+    if (execvp(args[ARG_PROGNAME], args) == -1) {
+        perror("execvp failed");
+        exit(1);
+    }
+}
+
+//This is the launch program function with redirection support.
+//We NUL-out the redirection tokens so that execvp sees only the real command arguments.
+//The child uses the helper function above to perform the actual redirection (child_with_redirection).
+//Parent path mirrors the basic launch_program logic.
+void launch_program_with_redirection(char *args[], int argsc)
+{
+    char *filename = NULL;
+    int append = 0;
+    int input = 0;
+
+    int idx = find_redirection(args, argsc, &filename, &append, &input);
+    if (idx == -1 || filename == NULL) {
+        fprintf(stderr, "Redirection syntax error\n");
+        return;
+    }
+
+    args[idx] = NULL;
+    if (idx + 1 < argsc) 
+        args[idx + 1] = NULL;
+    
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        child_with_redirection(args, argsc, filename, append, input);
+    } else if (pid > 0) {
+        return; //Parent waits using reap()
+    } else {
+        perror("fork failed");
+    }
+}

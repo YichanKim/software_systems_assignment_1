@@ -25,6 +25,7 @@ enum ArgIndex
     ARG_3,
 };
 
+
 ///With inline functions, the compiler replaces the function call 
 ///with the actual function code;
 ///inline improves speed and readability; meant for short functions (a few lines).
@@ -44,4 +45,13 @@ void child(char *args[], int argsc);
 
 ///Program launching functions (add more as appropriate)
 void launch_program(char *args[], int argsc);
+
+//Redirection helpers - The three functions below are to implement the redirection functionality.
+int command_with_redirection(char line[]);
+void launch_program_with_redirection(char *args[], int argsc);
+
+//Extra helper function
+int find_redirection(char *tokens[], int count, char **file, int *append, int *input);
+
+
 #endif
