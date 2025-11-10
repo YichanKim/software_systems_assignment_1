@@ -36,8 +36,8 @@ static inline void reap()
 }
 
 ///Shell I/O and related functions (add more as appropriate)
-void read_command_line(char line[]);
-void construct_shell_prompt(char shell_prompt[]);
+void read_command_line(char line[], char lwd[]);
+void construct_shell_prompt(char shell_prompt[], char lwd[]);
 void parse_command(char line[], char *args[], int *argsc);
 
 ///Child functions (add more as appropriate)
@@ -58,5 +58,10 @@ int command_with_pipes(char line[]);
 int tokenize_pipeline(char line[], char *commands[], int *command_count);
 void launch_pipeline(char *commands[], int command_count);
 //I'm writing general-purpose helpers so that the main loop stays readable. 
+
+
+int is_cd(const char *line);
+void init_lwd(char lwd[]);
+int run_cd(char *args[], int argsc, char lwd[]);
 
 #endif

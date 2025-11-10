@@ -83,6 +83,32 @@ All redirection test commands from the roadmap executed successfully (e.g., `ls 
 
 ## Section 3: Support for `cd` Command - TBD
 
+### What I Accomplished
+Added support for cd commands, including special cases such as "cd ..", "cd -", "cd", "cd .", "cd /path/to/invalid file", "cd path/to/file", "cd a b"
+
+Note that support for cd ~ have not been added
+
+### Implementation
+- **`is_cd()`**: Detects if the command/line begins with "cd", ignores leading whitespace and ensures it is followed by end of line or a space. (accounts for cases like 'cdfoo' would not work).
+- **`init_lwd()`**: initialises the last working directory (lwd) buffer so that "cd -" will not run when it is the first command that is being run after shell start (it will allow for the shell to return "no previous directory").
+- **`run_cd()`**: Uses chdir() function to run the "cd" command. After a successful change, updates the lwd buffer accordingly. Handles:
+    - cd -> goes to $HOME   
+    - cd /path/ -> goes to /path/
+    - cd - -> switches to previous directory
+    - cd .. -> goes to upper directory
+    - cd . -> stays in present directory
+    - cd a b -> error, too many arguments
+    - cd /invalid/path -> error, invalid path
+Also additionally altered **`read_command_line`** and **`construct_shell_prompt`** to account for our newly created lwd buffer.
+
+### Key Insights I Learned
+- lwd's length is set to [MAX_PROMPT_LEN-6] to accout for the "[ s3]$" characters (there are six of them).
+- cd must run in the parent shell process since the child changing directories would not change the directory of the shell itself.
+- The `cd -` command must fail when there is an invalid previous directory (not set yet).
+- Not implementing support for `cd ~` keeps the cd straightforward and matches the section requirements.
+
+### Testing Results
+All cd test commands from the roadmap executed successfully. The shell prompt was able to navigate between directories and output them as a prompt, confirming the feature works as intended.
 
 ---
 

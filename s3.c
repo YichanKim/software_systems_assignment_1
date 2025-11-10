@@ -1,18 +1,27 @@
+#include <ctype.h>
 #include "s3.h"
 
 //This file contains the functions that are used in the shell. 
 
 ///Simple for now, but will be expanded in a following section
-void construct_shell_prompt(char shell_prompt[])
+void construct_shell_prompt(char shell_prompt[], char lwd[])
 {
-    strcpy(shell_prompt, "[s3]$ ");
+    char cwd[MAX_PROMPT_LEN];
+
+    if (getcwd(cwd, sizeof(cwd)) != NULL){
+        strcpy(shell_prompt, "[");
+        strcat(shell_prompt, cwd);
+        strcat(shell_prompt, " s3]$ ");
+    } else{
+        strcpy(shell_prompt, "[s3]$ ");
+    }
 }
 
 ///Prints a shell prompt and reads input from the user
-void read_command_line(char line[])
+void read_command_line(char line[], char lwd[])
 {
     char shell_prompt[MAX_PROMPT_LEN];
-    construct_shell_prompt(shell_prompt);
+    construct_shell_prompt(shell_prompt, lwd);
     printf("%s", shell_prompt);
 
     ///See man page of fgets(...)
@@ -66,6 +75,103 @@ void child(char *args[], int argsc)
     exit(1);
 
 
+}
+
+/**
+ * is_cd
+ * 
+ * checks if command is a cd command
+ * returns 1 if true, 0 otherwise
+ */
+int is_cd(const char *line) {
+    if (!line){ //command/line is blank
+        return 0;
+    }
+
+    while (*line && isspace((char)* line)) { //scrolls through white spcae
+        line++;
+    }
+
+    if (line[0] == 'c' && line[1] == 'd' &&
+        (line[2] == '\0' || isspace((unsigned char)line[2]))) { //prevents lines like cdfoo
+        return 1;
+    }
+    return 0;
+}
+
+/**
+ * init_lwd
+ * 
+ * initialises a buffer to store previous directory
+ * sets lwd[0] to '\0' which signals that there is no previous directory at init
+ */
+void init_lwd(char lwd[]){
+    lwd[0] = '\0'; //no prev directory
+    return;
+}
+
+/**
+ * run_cd
+ * 
+ * Uses chdir() to change present working directory of the process
+ *  
+ * args = array of strings. args contains the command and its arguments
+ * argsc = number of strings in args
+ * lwd[] = array to store previous working directory
+ * 
+ * Edge case to handle: 
+ *  1) cd -: goes to previous directory
+ *  2) cd ..: goes to the directory above the current directory
+ *  3) cd : goes to home directory
+ *  4) cd a b: sends error (too many arguments)
+ *  5) cd non/existent/path/ : sends error (invalid file)
+ */
+int run_cd(char *args[], int argsc, char lwd[]) {
+    if (argsc > 2){ //too many arguments, throw cd error
+        fprintf(stderr, "cd error, too many arguments\n");
+        return -1;
+    }
+    
+    const char *path = NULL;
+    
+    if (argsc > 1 && args[1]){
+        if (strcmp(args[1], "-") == 0) { //if cd path is "-", go to previous directory
+            if (!lwd || lwd[0] == '\0') {
+                fprintf(stderr, "cd, no prev directory\n");
+                return -1;
+            }
+            path = lwd;
+        } else { //else go to specified path
+            path = args[1];
+        }
+    } else { //if cd path is blank, go to home file directory
+        path = getenv("HOME");
+    }
+
+    //path validation
+    if (!path || path[0] == '\0') {
+        fprintf(stderr, "cd error, path not set\n");
+        return -1;
+    }
+
+    char *oldpwd = getcwd(NULL, 0);
+
+    if (chdir(path) != 0) { //chdir returns -1 on failure
+        fprintf(stderr, "cd error\n");
+        free(oldpwd);
+        return -1;
+    }
+
+    //to manage working directories to allow for "cd -"
+    if (oldpwd){
+        strncpy(lwd, oldpwd, MAX_PROMPT_LEN - 6);
+        lwd[MAX_PROMPT_LEN - 7] = '\0';
+        free(oldpwd);
+    } else {
+        lwd[0] = '\0';
+    }
+
+    return 0;
 }
 
 
