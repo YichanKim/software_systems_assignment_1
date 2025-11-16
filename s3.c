@@ -227,6 +227,17 @@ int command_with_pipes(char line[])
     return 0;
 }
 
+// This function checks if the command contains a semicolon (.i.e if it is a batched command)
+int command_with_batch(char line[])
+{
+    for (size_t i = 0; line[i] != '\0'; i++) {
+        if (line[i] == ';') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 //This returns the index of the operator if found, -1 otherwise.
 //It sets the file, appends, input depends on the operator type.
 //The key idea of this function is to record the file to use, whether it's append mode, and whether it's input redirection.
@@ -276,6 +287,34 @@ int tokenize_pipeline(char line[], char *commands[], int *command_count)
     }
 
     commands[*command_count] = NULL;
+    return *command_count > 0;
+}
+
+// Splits the raw line into individual commands separated by semicolons
+// Returns 1 on success, 0 on parse failure
+int tokenize_batched_commands(char line[], char *commands[], int * command_count)
+{
+    char *saveptr = NULL;
+    char *token = strtok_r(line, ";", &saveptr);
+    *command_count = 0;
+
+    while (token != NULL && *command_count < MAX_ARGS - 1) {
+        while (*token == ' ') ++token;
+
+        size_t len = strlen(token);
+        while (len > 0 && token[len - 1] == ' ') {
+            token[len - 1] = '\0';
+            len--;
+        }
+
+        if (*token == '\0') {
+            token = strtok_r(NULL, ";", &saveptr);
+            continue;
+        }
+
+    commands[(*command_count)++] = token;
+    token = strtok_r(NULL, ";", &saveptr);
+    }
     return *command_count > 0;
 }
 
@@ -430,4 +469,41 @@ void launch_pipeline(char *commands[], int command_count)
         close(prev_read_fd);
 
     //Parent returns; reap() in main waits for all children
+}
+
+// Executes a batch of commands sequentially, regardless of success/failure
+// Each command can be basic, have redirection, or use pipes
+void launch_batched_commands(char *commands[], int command_count)
+{
+    for (int i = 0; i < command_count; i++) {
+        char * args[MAX_ARGS];
+        int argsc = 0;
+
+        parse_command(commands[i], args, &argsc);
+        
+        if (argsc == 0) {
+            continue;
+        }
+
+        if (command_with_pipes(commands[i])) {
+            char * pipeline_cmds[MAX_ARGS];
+            int pipeline_count = 0;
+
+            if (tokenize_pipeline(commands[i], pipeline_cmds, &pipeline_count)) {
+                launch_pipeline(pipeline_cmds, pipeline_count);
+            } else {
+                fprintf(stderr, "Pipeline parse error\n");
+            }
+            reap(); 
+        }
+        else if (command_with_redirection(commands[i])) {
+            parse_command(commands[i], args, &argsc);
+            launch_program_with_redirection(args, argsc);
+            reap();
+        } else {
+            parse_command(commands[i], args, &argsc);
+            launch_program(args, argsc);
+            reap();
+        }
+    }
 }

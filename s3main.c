@@ -72,7 +72,29 @@ int main(int argc, char *argv[]){
 
         if(is_cd(line)){///Implement this function
             parse_command(line, args, &argsc);
-            run_cd(args, argsc, lwd); ///Implement this function
+            run_cd(args, argsc, lwd);
+        }
+        else if(command_with_batch(line)){
+            char *batch_cmds[MAX_ARGS];
+            int batch_count = 0;
+
+            if (tokenize_batched_commands(line, batch_cmds, &batch_count)) {
+                launch_batched_commands(batch_cmds, batch_count);
+            } else {
+                fprintf(stderr, "Batch parse error\n");
+            }
+        }
+        else if(command_with_pipes(line)){
+            char *pipeline_cmds[MAX_ARGS];
+            int pipeline_count = 0;
+
+            if (tokenize_pipeline(line, pipeline_cmds, &pipeline_count)) {
+                launch_pipeline(pipeline_cmds, pipeline_count);
+            } else {
+                fprintf(stderr, "Pipeline parse error\n");
+            }
+
+            reap();
         }
         else if(command_with_redirection(line)){
             ///Command with redirection

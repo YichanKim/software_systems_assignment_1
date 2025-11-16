@@ -81,7 +81,7 @@ All redirection test commands from the roadmap executed successfully (e.g., `ls 
 
 ---
 
-## Section 3: Support for `cd` Command - TBD
+## Section 3: Support for `cd` Command - COMPLETED
 
 ### What I Accomplished
 Added support for cd commands, including special cases such as "cd ..", "cd -", "cd", "cd .", "cd /path/to/invalid file", "cd path/to/file", "cd a b"
@@ -134,6 +134,27 @@ All pipeline test commands from the roadmap ran successfully (e.g., `cat | sort 
 
 ---
 
+## Section 5: Batched Commands - COMPLETED
+
+### What I Accomplished
+Implemented batched command execution using `;`, allowing multiple commands to run sequentially and independently (a failure does not stop the rest).
+
+### Implementation
+- **`command_with_batch()`**: Detects semicolons in the raw line to route to batch handling early.
+- **`tokenize_batched_commands()`**: Splits the line on `;`, trims whitespace on both ends, and skips empty segments so accidental doubles like `cmd1;;cmd2` don’t break execution.
+- **`launch_batched_commands()`**: Iterates each segment and reuses existing paths: pipelines (`launch_pipeline()`), redirection (`launch_program_with_redirection()`), or basic (`launch_program()`), calling `reap()` after each.
+- Main loop updated to prioritize: `cd` → batch → pipes → redirection → basic.
+
+### Key Insights I Learned
+- Trimming both leading and trailing spaces per segment prevents subtle parse errors (e.g., missing operand symptoms).
+- Rechecking the original segment string (not just parsed args) is important to detect pipes/redirection reliably before altering tokens.
+- Keeping `cd` in the parent path (even inside batches) preserves shell state; other commands can safely fork/exec.
+
+### Testing Results
+All batch test scenarios (mixed basic, redirection, and pipelines; failure within batch; directory changes) executed as expected, confirming independent, sequential execution.
+
+---
+
 ### Environment
 - **Platform**: Ubuntu/WSL 
 - **Compilation**: `gcc *.c -o s3`
@@ -142,5 +163,6 @@ All pipeline test commands from the roadmap ran successfully (e.g., `cat | sort 
 
 ## Next Steps
 
-- **Section 3**: Support for `cd` command  
-- **Section 5**: Batched Commands
+- **PE 1**: Subshells (parentheses) — launch nested shell processes for grouped execution
+- **PE 2**: Nested Subshells — stack-based parsing for arbitrary nesting
+- Further enhancements (optional): history, tab completion, job control, globbing
