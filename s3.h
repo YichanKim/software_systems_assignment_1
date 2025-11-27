@@ -68,6 +68,6 @@ int run_cd(char *args[], int argsc, char lwd[]);
 //Batched command helpers
 int command_with_batch(char line[]);
 int tokenize_batched_commands(char line[], char *commands[], int *command_count);
-void launch_batched_commands(char *commands[], int command_count);
+void launch_batched_commands(char *commands[], int command_count, char lwd[]);
 
 #endif

@@ -79,7 +79,7 @@ int main(int argc, char *argv[]){
             int batch_count = 0;
 
             if (tokenize_batched_commands(line, batch_cmds, &batch_count)) {
-                launch_batched_commands(batch_cmds, batch_count);
+                launch_batched_commands(batch_cmds, batch_count, lwd);
             } else {
                 fprintf(stderr, "Batch parse error\n");
             }

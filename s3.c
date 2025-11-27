@@ -299,21 +299,26 @@ int tokenize_batched_commands(char line[], char *commands[], int * command_count
     *command_count = 0;
 
     while (token != NULL && *command_count < MAX_ARGS - 1) {
-        while (*token == ' ') ++token;
+        // Trim leading spaces by moving pointer forward
+        while (*token == ' ') 
+            ++token;
 
-        size_t len = strlen(token);
-        while (len > 0 && token[len - 1] == ' ') {
-            token[len - 1] = '\0';
-            len--;
+        // Trim trailing spaces by modifying the string in place
+        // Find the end of the token (before strtok_r's null terminator)
+        char *end = token + strlen(token);
+        while (end > token && *(end - 1) == ' ') {
+            --end;
         }
+        *end = '\0'; // Null-terminate at the trimmed position
 
+        // Skip empty commands
         if (*token == '\0') {
             token = strtok_r(NULL, ";", &saveptr);
             continue;
         }
 
-    commands[(*command_count)++] = token;
-    token = strtok_r(NULL, ";", &saveptr);
+        commands[(*command_count)++] = token;
+        token = strtok_r(NULL, ";", &saveptr);
     }
     return *command_count > 0;
 }
@@ -472,19 +477,21 @@ void launch_pipeline(char *commands[], int command_count)
 }
 
 // Executes a batch of commands sequentially, regardless of success/failure
-// Each command can be basic, have redirection, or use pipes
-void launch_batched_commands(char *commands[], int command_count)
+// Each command can be basic, have redirection, use pipes, or be a cd command
+void launch_batched_commands(char *commands[], int command_count, char lwd[])
 {
     for (int i = 0; i < command_count; i++) {
         char * args[MAX_ARGS];
         int argsc = 0;
 
-        parse_command(commands[i], args, &argsc);
-        
-        if (argsc == 0) {
-            continue;
+        // Check for cd command first (must run in parent process)
+        if (is_cd(commands[i])) {
+            parse_command(commands[i], args, &argsc);
+            run_cd(args, argsc, lwd);
+            continue; // cd doesn't need reap()
         }
 
+        // Check command type before parsing (parsing modifies the string)
         if (command_with_pipes(commands[i])) {
             char * pipeline_cmds[MAX_ARGS];
             int pipeline_count = 0;
@@ -498,10 +505,16 @@ void launch_batched_commands(char *commands[], int command_count)
         }
         else if (command_with_redirection(commands[i])) {
             parse_command(commands[i], args, &argsc);
+            if (argsc == 0) {
+                continue;
+            }
             launch_program_with_redirection(args, argsc);
             reap();
         } else {
             parse_command(commands[i], args, &argsc);
+            if (argsc == 0) {
+                continue;
+            }
             launch_program(args, argsc);
             reap();
         }
