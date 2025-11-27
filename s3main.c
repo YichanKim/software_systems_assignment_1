@@ -55,6 +55,8 @@ int main(int argc, char *argv[]){
     char line[MAX_LINE];
 
     ///The last (previous) working directory 
+    ///We set it to -6 to account for "[s3]$ " <- 6 characters which is defined in s3.c
+    ///Shell prompt is constructed in construct_shell_prompt() function
     char lwd[MAX_PROMPT_LEN-6]; 
 
     init_lwd(lwd);///Implement this function: initializes lwd with the cwd (using getcwd)

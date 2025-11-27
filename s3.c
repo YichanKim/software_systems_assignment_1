@@ -84,14 +84,18 @@ void child(char *args[], int argsc)
  * returns 1 if true, 0 otherwise
  */
 int is_cd(const char *line) {
-    if (!line){ //command/line is blank
+    //input to is_cd is a null pointer, return 0
+    if (!line){
         return 0;
     }
 
-    while (*line && isspace((char)* line)) { //scrolls through white spcae
+    //if character in line exists ('\0' will output false) & character in line is space
+    //move pointer to next character
+    while (*line && isspace((char) *line)) { //Essentially scrolls through white spcae
         line++;
     }
-
+    
+    //line[0] is a valid check as line[0] = '\0' for edge case of just spaces
     if (line[0] == 'c' && line[1] == 'd' &&
         (line[2] == '\0' || isspace((unsigned char)line[2]))) { //prevents lines like cdfoo
         return 1;
@@ -106,8 +110,20 @@ int is_cd(const char *line) {
  * sets lwd[0] to '\0' which signals that there is no previous directory at init
  */
 void init_lwd(char lwd[]){
-    lwd[0] = '\0'; //no prev directory
-    return;
+    char cwd[MAX_PROMPT_LEN];
+
+    size_t max_available_size = MAX_PROMPT_LEN - 6;
+
+    if (getcwd(cwd, sizeof(cwd)) != NULL){
+        if(strlen(cwd) >= max_available_size){
+            lwd[0] = '\0';
+        } else {
+            //copies until we find '\0' and copies '\0' too
+            strcpy(lwd, cwd);
+        }
+    } else{
+        lwd[0] = '\0'; //no prev directory
+    }
 }
 
 /**
@@ -136,7 +152,7 @@ int run_cd(char *args[], int argsc, char lwd[]) {
     
     if (argsc > 1 && args[1]){
         if (strcmp(args[1], "-") == 0) { //if cd path is "-", go to previous directory
-            if (!lwd || lwd[0] == '\0') {
+            if (!lwd || lwd[0] == '\0') { //lwd does not exist
                 fprintf(stderr, "cd, no prev directory\n");
                 return -1;
             }
@@ -156,21 +172,28 @@ int run_cd(char *args[], int argsc, char lwd[]) {
 
     char *oldpwd = getcwd(NULL, 0);
 
+    //Change directory to path with chdir
     if (chdir(path) != 0) { //chdir returns -1 on failure
-        fprintf(stderr, "cd error\n");
+        fprintf(stderr, "chdir error\n");
         free(oldpwd);
         return -1;
     }
 
+    //set new lwd with oldpwd
     //to manage working directories to allow for "cd -"
     if (oldpwd){
-        strncpy(lwd, oldpwd, MAX_PROMPT_LEN - 6);
-        lwd[MAX_PROMPT_LEN - 7] = '\0';
-        free(oldpwd);
+        size_t max_available_size = MAX_PROMPT_LEN - 6;
+        if(strlen(oldpwd) >= max_available_size){
+            lwd[0] = '\0';
+        } else {
+            //copies until we find '\0' and copies '\0' too
+            strcpy(lwd, oldpwd);
+        }
     } else {
         lwd[0] = '\0';
     }
 
+    free(oldpwd);
     return 0;
 }
 
