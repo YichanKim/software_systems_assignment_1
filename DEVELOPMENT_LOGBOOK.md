@@ -155,6 +155,21 @@ All batch test scenarios (mixed basic, redirection, and pipelines; failure withi
 
 ---
 
+## Bug Fix: Pipeline Redirection
+
+### Issue
+Pipelines ending with output redirection (e.g., `cat file | sort | tac > output.txt`) were passing redirection operators as arguments to the last command instead of redirecting output to the file. This caused errors like `tac: failed to open '>' for reading`.
+
+### Root Cause
+`launch_pipeline()` did not detect or handle redirection operators in the last command. The redirection operators and filename were passed directly to `execvp()`, causing commands to treat them as file arguments.
+
+### Fix
+- Added `child_with_pipes_and_redirection()` helper that handles both pipe input and file output redirection
+- Modified `launch_pipeline()` to detect redirection in the last command, strip operators from args, and use the combined helper
+- This fix resolves the issue for both standalone pipelines and pipelines within batched commands
+
+---
+
 ### Environment
 - **Platform**: Ubuntu/WSL 
 - **Compilation**: `gcc *.c -o s3`

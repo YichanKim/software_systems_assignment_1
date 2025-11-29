@@ -409,6 +409,41 @@ static void child_with_pipes(char *args[], int argsc, int read_fd, int write_fd)
     exit(1);
 }
 
+//Launches a child command with both pipe input and file output redirection
+//read_fd: fd to be duped onto stdin (or -1 if no pipe input)
+//filename: file to redirect stdout to
+//append: 1 for append mode (>>), 0 for truncate mode (>)
+static void child_with_pipes_and_redirection(char *args[], int argsc, int read_fd, char *filename, int append)
+{
+    //Handle pipe input
+    if (read_fd != -1) {
+        if (dup2(read_fd, STDIN_FILENO) == -1) {
+            perror("dup2 failed");
+            exit(1);
+        }
+        close(read_fd);
+    }
+
+    //Handle file output redirection
+    int flags = O_WRONLY | O_CREAT;
+    flags |= append ? O_APPEND : O_TRUNC;
+    int fd = open(filename, flags, 0644);
+    if (fd == -1) {
+        perror("open failed");
+        exit(1);
+    }
+    if (dup2(fd, STDOUT_FILENO) == -1) {
+        perror("dup2 failed");
+        close(fd);
+        exit(1);
+    }
+    close(fd);
+
+    execvp(args[ARG_PROGNAME], args);
+    perror("execvp failed");
+    exit(1);
+}
+
 //This is the launch program function with redirection support.
 //We NUL-out the redirection tokens so that execvp sees only the real command arguments.
 //The child uses the helper function above to perform the actual redirection (child_with_redirection).
@@ -480,8 +515,29 @@ void launch_pipeline(char *commands[], int command_count)
             int write_fd = (i < command_count - 1) ? pipe_fds[1] : -1;
 
             if (pipe_fds[0] != -1) 
-            close(pipe_fds[0]); //Child doesn't need read end yet
-            child_with_pipes(args, argsc, read_fd, write_fd);
+                close(pipe_fds[0]); //Child doesn't need read end yet
+
+            //Check if last command has output redirection
+            if (i == command_count - 1) {
+                char *filename = NULL;
+                int append = 0;
+                int input = 0;
+                int redir_idx = find_redirection(args, argsc, &filename, &append, &input);
+
+                if (redir_idx != -1 && !input && filename != NULL) {
+                    //Last command has output redirection - strip operators and use combined helper
+                    args[redir_idx] = NULL;
+                    if (redir_idx + 1 < argsc)
+                        args[redir_idx + 1] = NULL;
+                    child_with_pipes_and_redirection(args, argsc, read_fd, filename, append);
+                } else {
+                    //Normal pipe handling (no redirection or input redirection)
+                    child_with_pipes(args, argsc, read_fd, write_fd);
+                }
+            } else {
+                //Not the last command - normal pipe handling
+                child_with_pipes(args, argsc, read_fd, write_fd);
+            }
         } else {
             if (prev_read_fd != -1)
                 close(prev_read_fd);
