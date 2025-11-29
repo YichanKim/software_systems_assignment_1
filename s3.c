@@ -91,7 +91,7 @@ int is_cd(const char *line) {
 
     //if character in line exists ('\0' will output false) & character in line is space
     //move pointer to next character
-    while (*line && isspace((char) *line)) { //Essentially scrolls through white spcae
+    while (*line && isspace((unsigned char) *line)) { //Essentially scrolls through white spcae
         line++;
     }
     
