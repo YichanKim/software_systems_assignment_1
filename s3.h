@@ -70,4 +70,10 @@ int command_with_batch(char line[]);
 int tokenize_batched_commands(char line[], char *commands[], int *command_count);
 void launch_batched_commands(char *commands[], int command_count, char lwd[]);
 
+
+//Subshell helpers
+int command_with_subshell(char line[]);
+int extract_subshell_commands(char line[], char *subshell_cmd);
+void launch_subshell(char *subshell_cmd);
+
 #endif

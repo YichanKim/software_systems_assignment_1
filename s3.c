@@ -261,6 +261,16 @@ int command_with_batch(char line[])
     return 0;
 }
 
+//Detects if the command line contains parentheses (i.e if it is a subshell command)
+int command_with_subshell(char line[])
+{
+    for (size_t i = 0; line[i] != '\0'; i++) { // If we find a '(' or ')', return 1, as it contains a subshell command
+        if (line[i] == '(' || line[i] == ')')
+            return 1;
+    }
+    return 0; // Doesn't contain a subshell command
+}
+
 //This returns the index of the operator if found, -1 otherwise.
 //It sets the file, appends, input depends on the operator type.
 //The key idea of this function is to record the file to use, whether it's append mode, and whether it's input redirection.
@@ -345,6 +355,51 @@ int tokenize_batched_commands(char line[], char *commands[], int * command_count
     }
     return *command_count > 0;
 }
+
+//Extracts the command string inside the parentheses
+//Returns 1 on success, 0 on failure
+int extract_subshell_commands(char line[], char *subshell_cmd) 
+{
+    char *open_paren = strchr(line, '(');
+    if (open_paren == NULL) {
+        return 0;
+    }
+
+    char *close_paren = strrchr(line, ')');
+    if (close_paren == NULL) {
+        return 0;
+    }
+
+    if (close_paren <= open_paren) {
+        return 0;
+    }
+
+    size_t len = close_paren - open_paren - 1; // -1 to account for the double counting of the parentheses
+
+    strncpy(subshell_cmd, open_paren + 1, len); // Copy the command string inside the parentheses
+    subshell_cmd[len] = '\0'; // Null-terminate the string
+
+    // Trim leading spaces by shifting the string
+    char *start = subshell_cmd;
+    while (*start == ' ') {
+        start++;
+    }
+    if (start != subshell_cmd) {
+        // Shift the string to remove leading spaces
+        size_t new_len = strlen(start);
+        memmove(subshell_cmd, start, new_len + 1); // +1 for null terminator
+    }
+
+    // Trim trailing spaces
+    size_t cmd_len = strlen(subshell_cmd);
+    while (cmd_len > 0 && subshell_cmd[cmd_len - 1] == ' ') {
+        subshell_cmd[cmd_len - 1] = '\0';
+        cmd_len--;
+    }
+    return strlen(subshell_cmd) > 0; // Returns 1 if successful, 0 if failure
+}
+
+
 
 //Child helper function for redirection - The child process needs to rewire its stdin/stdout before calling execvp.
 static void child_with_redirection(char *args[], int argsc, char *filename, int append, int input)
@@ -492,6 +547,66 @@ void launch_pipeline(char *commands[], int command_count)
             return;
         }
 
+        //Check if this command is a subshell
+        if (command_with_subshell(commands[i])) {
+            char subshell_cmd[MAX_LINE];
+            if (extract_subshell_commands(commands[i], subshell_cmd)) {
+                //Subshell in pipeline - need special handling with I/O redirection
+                int pipe_fds[2] = {-1, -1};
+                if (i < command_count - 1) {
+                    if (pipe(pipe_fds) == -1) {
+                        perror("pipe failed");
+                        if (prev_read_fd != -1) close(prev_read_fd);
+                        return;
+                    }
+                }
+                
+                pid_t pid = fork();
+                if (pid == -1) {
+                    perror("fork failed");
+                    if (prev_read_fd != -1) close(prev_read_fd);
+                    if (pipe_fds[0] != -1) close(pipe_fds[0]);
+                    if (pipe_fds[1] != -1) close(pipe_fds[1]);
+                    return;
+                }
+                
+                if (pid == 0) {
+                    //Child: redirect stdin/stdout for pipeline
+                    if (prev_read_fd != -1) {
+                        if (dup2(prev_read_fd, STDIN_FILENO) == -1) {
+                            perror("dup2 failed");
+                            exit(1);
+                        }
+                        close(prev_read_fd);
+                    }
+                    if (pipe_fds[1] != -1) {
+                        if (dup2(pipe_fds[1], STDOUT_FILENO) == -1) {
+                            perror("dup2 failed");
+                            exit(1);
+                        }
+                        close(pipe_fds[1]);
+                    }
+                    if (pipe_fds[0] != -1) close(pipe_fds[0]);
+                    
+                    //Launch subshell with redirected I/O
+                    char *subshell_args[3];
+                    subshell_args[0] = "./s3";
+                    subshell_args[1] = subshell_cmd;
+                    subshell_args[2] = NULL;
+                    execvp("./s3", subshell_args);
+                    perror("execvp failed");
+                    exit(1);
+                } else {
+                    //Parent: close fds and continue
+                    if (prev_read_fd != -1) close(prev_read_fd);
+                    if (pipe_fds[1] != -1) close(pipe_fds[1]);
+                    prev_read_fd = pipe_fds[0];
+                }
+                continue; //Skip normal command processing
+            }
+        }
+
+        //Normal command processing (not a subshell)
         int pipe_fds[2] = {-1, -1};
         if (i < command_count - 1) {
             if (pipe(pipe_fds) == -1) {
@@ -570,6 +685,18 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
             continue; // cd doesn't need reap()
         }
 
+        // Check for subshell
+        if (command_with_subshell(commands[i])) {
+            char subshell_cmd[MAX_LINE];
+            if (extract_subshell_commands(commands[i], subshell_cmd)) {
+                launch_subshell(subshell_cmd);
+                reap();
+            } else {
+                fprintf(stderr, "Subshell command syntax error\n");
+            }
+            continue;
+        }   
+
         // Check command type before parsing (parsing modifies the string)
         if (command_with_pipes(commands[i])) {
             char * pipeline_cmds[MAX_ARGS];
@@ -598,4 +725,29 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
             reap();
         }
     }
+}
+
+//Launches a subshell by forking and executing the shell binary with the subshell commands
+void launch_subshell(char *subshell_cmd)
+{
+    pid_t pid = fork();
+
+    if (pid == -1) {
+        perror("fork failed");
+        return;
+    }
+
+    if (pid == 0) { // Child process: execute the shell with the subshell command
+        char *subshell_args[3];
+        subshell_args[0] = "./s3"; // Path to shell binary
+        subshell_args[1] = subshell_cmd; // Command to execute
+        subshell_args[2] = NULL; // Null terminator
+
+        execvp("./s3", subshell_args);
+        perror("execvp failed"); // If you reach here, execvp failed
+        exit(1);
+        
+    }
+    // Parent process: wait for the subshell to complete
+    // reap() will be called in the main loop
 }

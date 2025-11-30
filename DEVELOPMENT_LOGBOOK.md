@@ -155,6 +155,38 @@ All batch test scenarios (mixed basic, redirection, and pipelines; failure withi
 
 ---
 
+## PE 1: Subshells - COMPLETED ✅
+
+### What I Accomplished
+Implemented subshell execution using parentheses `()`, allowing commands to run in isolated child processes. Subshells work standalone, within batched commands, and in pipelines, with proper I/O redirection support.
+
+### Implementation
+- **`command_with_subshell()`**: Detects parentheses in the command line to identify subshell commands.
+- **`extract_subshell_commands()`**: Extracts the command string between parentheses, handling whitespace trimming using `memmove()` to properly shift the string content.
+- **`launch_subshell()`**: Forks a child process and uses `execvp()` to launch the shell binary itself (`./s3`) with the extracted command as an argument, creating an isolated execution environment.
+- **Subshell argument handler** (in `s3main.c`): When the shell is invoked with arguments (for subshell execution), processes the command using the same logic as the main loop, with proper ordering (batch → cd → pipes → redirection → basic).
+- **Pipeline integration**: Modified `launch_pipeline()` to detect subshells in pipeline stages and redirect their I/O through pipes correctly.
+- **Batch integration**: Updated `launch_batched_commands()` to handle subshells within batched command sequences.
+
+### Key Insights I Learned
+- **Self-execution pattern**: Subshells work by having the shell execute itself with the subshell command as an argument. The `argc > 1` check in `main()` routes to a special execution path.
+- **Process isolation**: Each subshell runs in a separate forked process, so directory changes (`cd`) inside subshells don't affect the parent shell's working directory.
+- **String trimming bug**: Initially tried to trim by moving a pointer (`subshell_cmd++`), but this doesn't modify the actual string content. Fixed by using `memmove()` to shift the string data itself.
+- **Command order matters**: In the subshell argument handler, checking for batch commands before `cd` is critical. Otherwise, `"cd txt ; ls"` gets incorrectly parsed as a single `cd` command with too many arguments.
+- **I/O redirection in pipelines**: Subshells in pipelines need special handling to redirect stdin/stdout through pipes while the subshell executes in its isolated environment.
+
+### Testing Results
+Subshell functionality tested across multiple scenarios:
+- ✅ Standalone subshells: `(cd txt ; ls)`, `(ls)`
+- ✅ Subshells in batches: `echo "Start" ; (cd txt ; ls) ; echo "End"`
+- ✅ Subshells in pipelines: `(cd txt ; cat phrases.txt) | head -n 5`
+- ✅ Complex combinations: `(cd txt ; cat phrases.txt | sort) | head -n 3`
+- ✅ Isolation verification: `pwd ; (cd txt ; pwd) ; pwd` confirms parent directory unchanged
+
+All tests passed, confirming subshells execute correctly in isolation and integrate properly with existing features.
+
+---
+
 ## Bug Fix: Pipeline Redirection
 
 ### Issue
@@ -178,6 +210,6 @@ Pipelines ending with output redirection (e.g., `cat file | sort | tac > output.
 
 ## Next Steps
 
-- **PE 1**: Subshells (parentheses) — launch nested shell processes for grouped execution
+- ✅ **PE 1**: Subshells (parentheses) — COMPLETED
 - **PE 2**: Nested Subshells — stack-based parsing for arbitrary nesting
 - Further enhancements (optional): history, tab completion, job control, globbing
