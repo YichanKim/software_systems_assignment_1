@@ -297,86 +297,192 @@ int find_redirection(char *tokens[], int count, char **file, int *append, int *i
     return -1;
 }
 
-//Splits the raw line into 2 individual commands
+//Splits the raw line into 2 individual commands seperated by "|"
 //Returns 1 if successful, and 0 if we have a parse failure
-//We rely on strtok_r (thread-safe version of strtok) to avoid race conditions when using strtok in a multi-threaded environment
+//IGNORES '|' inside parentheses
 int tokenize_pipeline(char line[], char *commands[], int *command_count) 
 {
-    char *saveptr = NULL;
-    char *token = strtok_r(line, "|", &saveptr);
     *command_count = 0;
 
-    while (token != NULL && *command_count < MAX_ARGS - 1) {
-        //Trim the leading spaces
-        while (*token == ' ') 
-            ++token;
+    int paren_depth = 0;
+    char *begin = line; //beginnning of current command
+    size_t len = strlen(line);
 
-        if (*token == '\0') {
-            return 0; //Empty command between pipes = error
+    for (size_t i = 0; i<= len; i++) {
+        char ch = line[i];
+
+        if (ch == '('){
+            paren_depth++;
+        } else if (ch == ')' && paren_depth > 0){
+            paren_depth--;
         }
 
-        commands[(*command_count)++] = token;
-        token = strtok_r(NULL, "|", &saveptr);
+        if ((ch == '|' && paren_depth == 0) || ch == '\0') {
+            line[i] = '\0';
+
+            char *token = begin;
+
+            // Trim leading spaces by moving pointer forward
+            while (*token == ' '){
+                token++;
+            }
+
+            // Trim trailing spaces by modifying the string in place
+            // Find the end of the token (before strtok_r's null terminator)
+            // NOT my code -> copied from tokenise batched commands
+            char *end = token + strlen(token);
+            while (end > token && *(end - 1) == ' ') {
+                end--;
+            }
+            *end = '\0'; // Null-terminate at the trimmed position
+
+            // Add command if not empty
+            if (*token == '\0') {
+                if (ch == '\0'){
+                    // Result of using '\0' as null seperator
+                    // is that it will also look at the end of line null terminator.
+                    // As a result, we just ignore it with break
+                    break;
+                } else {
+                    fprintf(stderr, "Empty command in pipeline\n");
+                    return 0;
+                }
+            } else { //command (token) is not empty
+                if (*command_count >= MAX_ARGS-1){ //if command_count is greater than the max_args
+                    fprintf(stderr, "Too many pipeline commands\n");
+                    return 0;
+                }
+                commands[(*command_count)++] = token; // append
+            }
+
+            
+            begin = line + i + 1;
+        }
     }
 
+    if (paren_depth != 0){
+        fprintf(stderr, "Unbalanced parentheses");
+        return 0;
+    }
+
+    //null terminate command
     commands[*command_count] = NULL;
+
     return *command_count > 0;
 }
 
 // Splits the raw line into individual commands separated by semicolons
+//IGNORES semicolons inside parentheses -> sends the stuff inside parentheses as a batch itself
 // Returns 1 on success, 0 on parse failure
 int tokenize_batched_commands(char line[], char *commands[], int * command_count)
 {
-    char *saveptr = NULL;
-    char *token = strtok_r(line, ";", &saveptr);
     *command_count = 0;
 
-    while (token != NULL && *command_count < MAX_ARGS - 1) {
-        // Trim leading spaces by moving pointer forward
-        while (*token == ' ') 
-            ++token;
+    int paren_depth = 0;
+    char *begin = line; //beginnning of current command
+    size_t len = strlen(line);
 
-        // Trim trailing spaces by modifying the string in place
-        // Find the end of the token (before strtok_r's null terminator)
-        char *end = token + strlen(token);
-        while (end > token && *(end - 1) == ' ') {
-            --end;
-        }
-        *end = '\0'; // Null-terminate at the trimmed position
+    for (size_t i = 0; i<= len; i++) {
+        char ch = line[i];
 
-        // Skip empty commands
-        if (*token == '\0') {
-            token = strtok_r(NULL, ";", &saveptr);
-            continue;
+        if (ch == '('){
+            paren_depth++;
+        } else if (ch == ')'){
+            if (paren_depth == 0){
+                fprintf(stderr, "Unmatched closing parentheses\n");
+                return 0;
+            }
+            paren_depth--;
         }
 
-        commands[(*command_count)++] = token;
-        token = strtok_r(NULL, ";", &saveptr);
+        if ((ch == ';' && paren_depth == 0) || ch == '\0') {
+            line[i] = '\0';
+
+            char *token = begin;
+
+            // Trim leading spaces by moving pointer forward
+            while (*token == ' '){
+                token++;
+            }
+
+            // Trim trailing spaces by modifying the string in place
+            // Find the end of the token (before strtok_r's null terminator)
+            // Not my code <- working on top of previous code given from sadir06
+            char *end = token + strlen(token);
+            while (end > token && *(end - 1) == ' ') {
+                end--;
+            }
+            *end = '\0'; // Null-terminate at the trimmed position
+
+            // Add command if not empty
+            if (*token != '\0') {
+                if (*command_count >= MAX_ARGS-1){
+                    fprintf(stderr, "Too many batched commands");
+                    return 0;
+                }
+                commands[(*command_count)++] = token;
+            }
+            begin = line + i + 1; //start token on next character after the inputted token
+        }
     }
+    if (paren_depth != 0){ //edgecase, unbalanced parantehses
+        fprintf(stderr, "Unbalanced parentheses");
+        return 0;
+    }
+    
+    //null terminate command <- not my code again
+    commands[*command_count] = NULL;
+
     return *command_count > 0;
 }
 
 //Extracts the command string inside the parentheses
 //Returns 1 on success, 0 on failure
+//Doesn't need to account for batched commands as it is already accounted for in s3main.c
 int extract_subshell_commands(char line[], char *subshell_cmd) 
 {
-    char *open_paren = strchr(line, '(');
-    if (open_paren == NULL) {
+    int paren_depth = 0; //tracks depth of parentheses. 0 is top-level
+    int top_open_paren = -1; //first index of open parentheses '('
+    int top_close_paren = -1; //index of top-level closing parentheses ')'
+
+    //find and input index for first opening and closing parentheses (top level)
+    for (size_t index = 0; line[index] != '\0'; index++) { //index to scroll through string
+
+        if (line[index] == '(') {
+            // If paren_depth is 0 (top-level): Set top_open_paren to the index. else, skip
+            // After checking for paren_depth, increment paren_depth by 1.
+            if (paren_depth == 0){
+                top_open_paren = index;
+            }
+            paren_depth++;
+
+        } else if (line[index] == ')'){
+            // If paren_depth is 0 (top-level): Return 0 (error)
+            // Decrement paren_depth
+            // If paren_depth is now 0, Set top_close_paren to the index. else, skip
+            if (paren_depth == 0){
+                //unbalanced set of parentheses
+                return 0;
+            }
+
+            paren_depth--;
+
+            if (paren_depth == 0){
+                top_close_paren = index;
+                break;
+            }
+        }
+    }
+
+    //handle edgecases: No open/close paren, 
+    if (top_open_paren == -1 || top_close_paren == -1 || top_close_paren <= top_open_paren) {
         return 0;
     }
 
-    char *close_paren = strrchr(line, ')');
-    if (close_paren == NULL) {
-        return 0;
-    }
+    size_t len = top_close_paren - top_open_paren - 1; // -1 to account for the double counting of the parentheses
 
-    if (close_paren <= open_paren) {
-        return 0;
-    }
-
-    size_t len = close_paren - open_paren - 1; // -1 to account for the double counting of the parentheses
-
-    strncpy(subshell_cmd, open_paren + 1, len); // Copy the command string inside the parentheses
+    //size bound may be neccessary
+    strncpy(subshell_cmd, line + top_open_paren + 1, len); // Copy the command string inside the parentheses
     subshell_cmd[len] = '\0'; // Null-terminate the string
 
     // Trim leading spaces by shifting the string
@@ -689,8 +795,19 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
         if (command_with_subshell(commands[i])) {
             char subshell_cmd[MAX_LINE];
             if (extract_subshell_commands(commands[i], subshell_cmd)) {
-                launch_subshell(subshell_cmd);
-                reap();
+                char *batch_commands[MAX_ARGS];
+                int batch_count = 0;
+                if (tokenize_batched_commands(subshell_cmd, batch_commands, &batch_count)){
+                    pid_t pid = fork();
+                    if (pid == 0){//child process
+                        launch_batched_commands(batch_commands, batch_count,lwd);
+                        exit(0);
+                    } else if (pid > 0) {//parent
+                        reap();
+                    } else{
+                        fprintf(stderr, "fork failed in batched commands - command with subshell");
+                    }
+                }
             } else {
                 fprintf(stderr, "Subshell command syntax error\n");
             }
