@@ -46,8 +46,35 @@ void parse_command(char line[], char *args[], int *argsc)
     *argsc = 0;
     while (token != NULL && *argsc < MAX_ARGS - 1)
     {
+        //add tokenised command to args while incrementing argsc
         args[(*argsc)++] = token;
+        //find next string seperated by " "
         token = strtok(NULL, " ");
+
+        if (token == NULL){
+            break;
+        }
+        // Now before we add the token to the new line, we must remove surrounding quotes from the token
+        // This accounts for edge cases like echo "Hi" where it would output "Hi" instead of Hi  
+
+        size_t len = strlen(token);
+
+        //compare with 2 as quote removal requires at least two characters
+        if (len >= 2) {
+
+            //flag to check if it has double quotes on both lines
+            int has_double_quotes = (token[0] == '"' && token[len-1] == '"');
+
+            int has_single_quotes = (token[0] == '\'' && token[len-1] == '\'');
+
+            if (has_double_quotes || has_single_quotes){
+                //shift the token by 1 to the left
+                // null terminate the token
+                memmove(token, token + 1, len - 2);
+                token[len - 2] = '\0';
+            }
+        }
+        
     }
     
     args[*argsc] = NULL; ///args must be null terminated
