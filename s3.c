@@ -700,18 +700,7 @@ void launch_pipeline(char *commands[], int command_count)
     int prev_read_fd = -1;
 
     for (int i = 0; i < command_count; i++) {
-        char *args[MAX_ARGS];
-        int argsc = 0;
-
-        parse_command(commands[i], args, &argsc);
-
-        if (argsc == 0) {
-            fprintf(stderr, "Empty command in pipeline\n");
-            if (prev_read_fd != -1) close(prev_read_fd);
-            return;
-        }
-
-        //Check if this command is a subshell
+        //Check if this command is a subshell (check comes first)
         if (command_with_subshell(commands[i])) {
             char subshell_cmd[MAX_LINE];
             if (extract_subshell_commands(commands[i], subshell_cmd)) {
@@ -752,14 +741,19 @@ void launch_pipeline(char *commands[], int command_count)
                     }
                     if (pipe_fds[0] != -1) close(pipe_fds[0]);
                     
-                    //Launch subshell with redirected I/O
-                    char *subshell_args[3];
-                    subshell_args[0] = "./s3";
-                    subshell_args[1] = subshell_cmd;
-                    subshell_args[2] = NULL;
-                    execvp("./s3", subshell_args);
-                    perror("execvp failed");
-                    exit(1);
+                    // Instead of exec'ing a new s3 process, run the batched commands
+                    // inside this child after setting up I/O. This avoids argv/execvp
+                    // inconsistencies and keeps redirection local to the child.
+                    {
+                        char *batch_cmds[MAX_ARGS];
+                        int batch_count = 0;
+                        if (tokenize_batched_commands(subshell_cmd, batch_cmds, &batch_count)) {
+                            char lwd_local[MAX_PROMPT_LEN-6];
+                            init_lwd(lwd_local);
+                            launch_batched_commands(batch_cmds, batch_count, lwd_local);
+                        }
+                        exit(0);
+                    }
                 } else {
                     //Parent: close fds and continue
                     if (prev_read_fd != -1) close(prev_read_fd);
@@ -768,6 +762,18 @@ void launch_pipeline(char *commands[], int command_count)
                 }
                 continue; //Skip normal command processing
             }
+        }
+
+        //Parse command and check arg count (moved below subshell check)
+        char *args[MAX_ARGS];
+        int argsc = 0;
+
+        parse_command(commands[i], args, &argsc);
+
+        if (argsc == 0) {
+            fprintf(stderr, "Empty command in pipeline\n");
+            if (prev_read_fd != -1) close(prev_read_fd);
+            return;
         }
 
         //Normal command processing (not a subshell)
@@ -831,7 +837,10 @@ void launch_pipeline(char *commands[], int command_count)
     if (prev_read_fd != -1)
         close(prev_read_fd);
 
-    //Parent returns; reap() in main waits for all children
+    //Wait for all children in the pipeline
+    for (int i = 0; i < command_count; i++) {
+        reap();
+    }
 }
 
 // Executes a batch of commands sequentially, regardless of success/failure
@@ -849,8 +858,30 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
             continue; // cd doesn't need reap()
         }
 
-        // Check for subshell
-        if (command_with_subshell(commands[i])) {
+        // Check command type before parsing (parsing modifies the string)
+        if (command_with_pipes(commands[i])) {
+            char * pipeline_cmds[MAX_ARGS];
+            int pipeline_count = 0;
+
+            if (tokenize_pipeline(commands[i], pipeline_cmds, &pipeline_count)) {
+                launch_pipeline(pipeline_cmds, pipeline_count);
+            } else {
+                fprintf(stderr, "Pipeline parse error\n");
+            }
+            reap();
+            continue;
+        }
+        else if (command_with_redirection(commands[i])) {
+            parse_command(commands[i], args, &argsc);
+            if (argsc == 0) {
+                continue;
+            }
+            launch_program_with_redirection(args, argsc);
+            reap();
+            continue;
+        }
+        else if (command_with_subshell(commands[i])) {
+            // Check for subshell (moved to bottom)
             char subshell_cmd[MAX_LINE];
             if (extract_subshell_commands(commands[i], subshell_cmd)) {
                 char *batch_commands[MAX_ARGS];
@@ -862,6 +893,7 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
                         exit(0);
                     } else if (pid > 0) {//parent
                         reap();
+                        continue;
                     } else{
                         fprintf(stderr, "fork failed in batched commands - command with subshell");
                     }
@@ -870,27 +902,6 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
                 fprintf(stderr, "Subshell command syntax error\n");
             }
             continue;
-        }   
-
-        // Check command type before parsing (parsing modifies the string)
-        if (command_with_pipes(commands[i])) {
-            char * pipeline_cmds[MAX_ARGS];
-            int pipeline_count = 0;
-
-            if (tokenize_pipeline(commands[i], pipeline_cmds, &pipeline_count)) {
-                launch_pipeline(pipeline_cmds, pipeline_count);
-            } else {
-                fprintf(stderr, "Pipeline parse error\n");
-            }
-            reap(); 
-        }
-        else if (command_with_redirection(commands[i])) {
-            parse_command(commands[i], args, &argsc);
-            if (argsc == 0) {
-                continue;
-            }
-            launch_program_with_redirection(args, argsc);
-            reap();
         } else {
             parse_command(commands[i], args, &argsc);
             if (argsc == 0) {
@@ -898,6 +909,7 @@ void launch_batched_commands(char *commands[], int command_count, char lwd[])
             }
             launch_program(args, argsc);
             reap();
+            continue;
         }
     }
 }

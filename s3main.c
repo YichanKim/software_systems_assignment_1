@@ -43,7 +43,7 @@ int main(int argc, char *argv[]){
             if (tokenize_pipeline(line, pipeline_cmds, &pipeline_count)) {
                 launch_pipeline(pipeline_cmds, pipeline_count);
             }
-            reap();
+            // reap() is now called inside launch_pipeline() for all children
         }
         else if (command_with_redirection(line)) {
             parse_command(line, args, &argsc);
@@ -100,7 +100,7 @@ int main(int argc, char *argv[]){
                 fprintf(stderr, "Pipeline parse error\n");
             }
 
-            reap();
+            // reap() is now called inside launch_pipeline() for all children
         }
         else if(command_with_redirection(line)){
             ///Command with redirection
